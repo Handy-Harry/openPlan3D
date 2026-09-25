@@ -14,3 +14,10 @@ it('keeps every rounded inch remainder below twelve across repeated boundaries',
  }
  expect(formatLength(125,'metric')).toBe('1.25 m');expect(formatLengthPrecise(125,'metric')).toBe('1.25 m');
 });
+
+it('shows two decimal places for metric lengths in metres and centimetres', () => {
+ expect(formatLength(600, 'metric')).toBe('6.00 m');
+ expect(formatLength(320, 'metric')).toBe('3.20 m');
+ expect(formatLength(80, 'metric')).toBe('80.00 cm');
+ expect(formatLengthPrecise(80, 'metric')).toBe('80.00 cm');
+});

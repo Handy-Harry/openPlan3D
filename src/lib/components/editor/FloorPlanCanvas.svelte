@@ -4,7 +4,7 @@
   import { multiSelectionBounds } from '$lib/utils/multiSelectionBounds';
   import { onMount, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
-  import { removeRoom, reorderFurniture } from '$lib/stores/project';
+  import { removeRoom, reorderFurniture, DEFAULT_WALL_THICKNESS_CM } from '$lib/stores/project';
   import { selectionContentBounds } from '$lib/utils/selectionContentBounds';
   import { planContentBounds, hasPlanContent } from '$lib/utils/planContentBounds';
   import { connectedWallEndpoints } from '$lib/utils/wallEditing';
@@ -24,6 +24,7 @@
   import { hasOpenModal } from '$lib/utils/modalDialog';
   import ContextMenu from './ContextMenu.svelte';
   import { roomPresets, placePreset } from '$lib/utils/roomPresets';
+  import { parseRoomDimension, roomDrawingEnd, snapRoomCorner, roomInteriorCorner, oppositeRoomCorner, alignedRoomCorner, roomBoundary, missingRoomWalls } from '$lib/utils/roomDrawing';
   import { roomTemplates, placeRoomTemplate } from '$lib/utils/roomTemplates';
   import { openingDropTarget } from '$lib/utils/openingDrop';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
@@ -67,6 +68,75 @@
 
   // Wall drawing state
   let wallStart: Point | null = $state(null);
+  let roomStart: Point | null = $state(null);
+  let roomAnchor = $state<import('$lib/utils/roomDrawing').RoomCorner | null>(null);
+  let roomHoverCorner = $derived.by(() => currentTool === 'room' && !roomStart && currentSnapEnabled
+    ? snapRoomCorner(mousePos, currentFloor?.walls ?? [], 18 / zoom, DEFAULT_WALL_THICKNESS_CM) : null);
+  let roomInteriorStart: Point | null = $derived.by(() => roomAnchor ? roomInteriorCorner(roomAnchor, mousePos) : roomStart);
+  let typedRoomWidth = $state('');
+  let typedRoomLength = $state('');
+  let activeRoomDimension = $state<'width' | 'length'>('width');
+  let replaceRoomDimension = false;
+  let roomDimensionError = $state(false);
+  let roomOpposite = $derived.by(() => currentTool === 'room' && roomInteriorStart && currentSnapEnabled
+    ? oppositeRoomCorner(roomInteriorStart, mousePos, currentFloor?.walls ?? [], 18 / zoom,
+      DEFAULT_WALL_THICKNESS_CM, typedRoomWidth, typedRoomLength) : null);
+  let roomUnsnappedEnd: Point | null = $derived.by(() => roomInteriorStart
+    ? roomDrawingEnd(roomInteriorStart, { x: snap(mousePos.x), y: snap(mousePos.y) }, typedRoomWidth, typedRoomLength) : null);
+  let roomAligned = $derived.by(() => currentTool === 'room' && roomInteriorStart && roomUnsnappedEnd && currentSnapEnabled && !roomOpposite
+    ? alignedRoomCorner(roomInteriorStart, roomUnsnappedEnd, currentFloor?.walls ?? [], 18 / zoom,
+      DEFAULT_WALL_THICKNESS_CM, roomAnchor, typedRoomWidth, typedRoomLength) : null);
+  let roomEnd: Point | null = $derived.by(() => roomOpposite?.interiorEnd ?? roomAligned?.interiorEnd ?? roomUnsnappedEnd);
+  let roomLabelPositions = $derived.by(() => {
+    if (!roomInteriorStart || !roomEnd) return null;
+    const a = worldToScreen(roomInteriorStart!.x, roomInteriorStart!.y), b = worldToScreen(roomEnd.x, roomEnd.y);
+    return {
+      width: { x: Math.max(50, Math.min(width - 50, (a.x + b.x) / 2)), y: Math.max(12, Math.min(height - 12, Math.min(a.y, b.y) - 12)) },
+      length: { x: Math.max(50, Math.min(width - 50, Math.max(a.x, b.x) + 40)), y: Math.max(12, Math.min(height - 12, (a.y + b.y) / 2)) },
+    };
+  });
+  function roomDimensionLabel(axis: 'width' | 'length') {
+    if (!roomStart || !roomEnd) return '';
+    const draft = axis === 'width' ? typedRoomWidth : typedRoomLength;
+    const value = axis === 'width' ? Math.abs(roomEnd.x - roomInteriorStart!.x) : Math.abs(roomEnd.y - roomInteriorStart!.y);
+    const label = draft && parseRoomDimension(draft) === null ? `${draft} cm` : formatLength(value, dimSettings.units);
+    return label + (draft && activeRoomDimension === axis ? ' ⏎' : '');
+  }
+  $effect(() => { void roomStart; void roomEnd; void typedRoomWidth; void typedRoomLength; markDirty(); });
+
+  function switchRoomDimension(event: KeyboardEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    activeRoomDimension = activeRoomDimension === 'width' ? 'length' : 'width';
+    replaceRoomDimension = true;
+  }
+
+  function cancelRoomDrawing() {
+    roomStart = null; roomAnchor = null;
+    typedRoomWidth = ''; typedRoomLength = ''; activeRoomDimension = 'width';
+    replaceRoomDimension = false;
+    roomDimensionError = false;
+    markDirty();
+  }
+
+  function finishRoomDrawing() {
+    if (!roomStart || !roomEnd) return;
+    if ((typedRoomWidth && parseRoomDimension(typedRoomWidth) === null) || (typedRoomLength && parseRoomDimension(typedRoomLength) === null)) {
+      roomDimensionError = true;
+      return;
+    }
+    const w = Math.abs(roomEnd.x - roomInteriorStart!.x), h = Math.abs(roomEnd.y - roomInteriorStart!.y);
+    if (w < 1 || h < 1) return;
+    const boundary = roomBoundary(roomInteriorStart!, roomEnd, DEFAULT_WALL_THICKNESS_CM, roomAnchor, roomOpposite?.corner, roomAligned);
+    const missing = missingRoomWalls(boundary, currentFloor?.walls ?? []);
+    if (missing.length) {
+      beginUndoGroup();
+      try { for (const wall of missing) addWall(wall.start, wall.end); }
+      finally { endUndoGroup('Drew room'); }
+    }
+    cancelRoomDrawing();
+    canvas.focus({ preventScroll: true });
+  }
   // Digits typed while drawing a wall — Enter places the wall at exactly this length (issue #6)
   let typedWallLength = $state('');
   let wallSequenceFirst: Point | null = $state(null);
@@ -602,10 +672,10 @@
     const nx = -uy, ny = ux;
     const isDoor = placementPreview.type === 'door';
     const doorWidths: Record<string, number> = {
-      single: 90, double: 150, sliding: 180, french: 150,
+      single: 83, double: 150, sliding: 180, french: 150,
       pocket: 90, bifold: 180, opening: 100, garage: 240,
     };
-    const itemWidth = isDoor ? (doorWidths[currentDoorType] ?? 90) : 120;
+    const itemWidth = isDoor ? (doorWidths[currentDoorType] ?? 83) : 120;
     const halfW = (itemWidth / 2) * zoom;
     const thickness = Math.max(wall.thickness * zoom, 4);
 
@@ -1507,6 +1577,40 @@
         ctx.fill();
       }
     }
+    if (currentTool === 'room' && (roomHoverCorner || roomAnchor || roomOpposite)) {
+      const point = (roomAnchor ?? roomHoverCorner)!.point;
+      const marker = worldToScreen(point.x, point.y);
+      ctx.save();
+      ctx.strokeStyle = '#16a34a'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(marker.x, marker.y, 7, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+    if (currentTool === 'room' && (roomOpposite || roomAligned)) {
+      const point = (roomOpposite ?? roomAligned)!.corner.point;
+      const marker = worldToScreen(point.x, point.y);
+      ctx.save();
+      ctx.strokeStyle = '#16a34a'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(marker.x, marker.y, 7, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+    if (roomStart && roomEnd && currentTool === 'room') {
+      const a = worldToScreen(roomInteriorStart!.x, roomInteriorStart!.y);
+      const b = worldToScreen(roomEnd.x, roomEnd.y);
+      ctx.save();
+      // Preview the walls outside the clear interior rectangle.
+      const wallPixels = DEFAULT_WALL_THICKNESS_CM * zoom;
+      ctx.strokeStyle = 'rgba(37, 99, 235, 0.20)';
+      ctx.lineWidth = wallPixels;
+      ctx.strokeRect(Math.min(a.x, b.x) - wallPixels / 2, Math.min(a.y, b.y) - wallPixels / 2,
+        Math.abs(b.x - a.x) + wallPixels, Math.abs(b.y - a.y) + wallPixels);
+      ctx.fillStyle = 'rgba(37, 99, 235, 0.10)';
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+      ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+      ctx.restore();
+    }
     if (wallStart && currentTool === 'wall') {
       drawAngleGuides(wallStart);
       const endPt = applyTypedWallLength(snapWallEndPoint(mousePos));
@@ -1805,6 +1909,7 @@
         wallStart = null;
         wallSequenceFirst = null;
         typedWallLength = '';
+        cancelRoomDrawing();
       }
       currentFloor = f;
       updateDetectedRooms();
@@ -1835,6 +1940,7 @@
         wallStart = null;
         wallSequenceFirst = null;
         typedWallLength = '';
+        cancelRoomDrawing();
       }
       currentTool = t;
       textAnnotationMode = t === 'text';
@@ -2257,6 +2363,19 @@
         selectedRoomId.set(null);
         elevationWallId.set(wall.id);
       }
+      return;
+    }
+
+    if (tool === 'room') {
+      mousePos = wp;
+      canvas.focus({ preventScroll: true });
+      if (!roomStart) {
+        roomAnchor = currentSnapEnabled ? snapRoomCorner(wp, currentFloor?.walls ?? [], 18 / zoom, DEFAULT_WALL_THICKNESS_CM) : null;
+        roomStart = roomAnchor?.point ?? { x: snap(wp.x), y: snap(wp.y) };
+        typedRoomWidth = ''; typedRoomLength = ''; activeRoomDimension = 'width';
+        replaceRoomDimension = false;
+        roomDimensionError = false;
+      } else finishRoomDrawing();
       return;
     }
 
@@ -3371,6 +3490,31 @@
     shiftDown = e.shiftKey;
     if (e.code === 'Space') { spaceDown = true; e.preventDefault(); return; }
 
+    if (currentTool === 'room' && roomStart && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (e.key === 'Tab') { switchRoomDimension(e); return; }
+      if (/^[0-9.,]$/.test(e.key)) {
+        if (activeRoomDimension === 'width') typedRoomWidth = (replaceRoomDimension ? '' : typedRoomWidth) + e.key;
+        else typedRoomLength = (replaceRoomDimension ? '' : typedRoomLength) + e.key;
+        replaceRoomDimension = false;
+        roomDimensionError = false;
+        e.preventDefault();
+        return;
+      }
+      if (e.key === 'Backspace') {
+        if (activeRoomDimension === 'width') typedRoomWidth = replaceRoomDimension ? '' : typedRoomWidth.slice(0, -1);
+        else typedRoomLength = replaceRoomDimension ? '' : typedRoomLength.slice(0, -1);
+        replaceRoomDimension = false;
+        roomDimensionError = false;
+        e.preventDefault();
+        return;
+      }
+      if (e.key === 'Enter') {
+        finishRoomDrawing();
+        e.preventDefault();
+        return;
+      }
+    }
+
     // Exact-length entry while drawing a wall (issue #6):
     // type a number, then Enter places the wall at exactly that length.
     if (currentTool === 'wall' && wallStart && !editingTextAnnotationId && !e.metaKey && !e.ctrlKey) {
@@ -3447,6 +3591,7 @@
       selectedRoomId.set(null);
       elevationPickMode.set(false);
       wallStart = null; wallSequenceFirst = null; typedWallLength = '';
+      cancelRoomDrawing();
       placingFurnitureId.set(null);
       placingEntourageId.set(null);
       placingRotation.set(0);
@@ -4248,6 +4393,27 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
         </button>
       </div>
+    {/if}
+  {/if}
+  {#if currentTool === 'room'}
+    <div class="absolute top-2 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-3 py-1 rounded text-xs shadow pointer-events-none">
+      {$t(roomStart ? 'drawRoom.finishHint' : 'drawRoom.startHint')}
+    </div>
+    {#if roomStart && roomLabelPositions}
+      {#each ['width', 'length'] as axis}
+        {@const dimension = axis as 'width' | 'length'}
+        <output
+          aria-label={$t(dimension === 'width' ? 'drawRoom.width' : 'drawRoom.length')}
+          data-active={activeRoomDimension === dimension}
+          class="absolute z-20 pointer-events-none -translate-x-1/2 -translate-y-1/2 rounded-full px-1.5 h-[18px] leading-[18px] text-[11px] font-bold text-white whitespace-nowrap"
+          style:left={`${roomLabelPositions[dimension].x}px`}
+          style:top={`${roomLabelPositions[dimension].y}px`}
+          style:background={activeRoomDimension === dimension ? '#b45309' : '#1e293b'}
+        >{roomDimensionLabel(dimension)}</output>
+      {/each}
+      {#if roomDimensionError}
+        <p class="absolute top-12 left-1/2 -translate-x-1/2 bg-white text-red-700 rounded px-3 py-1 text-xs" role="alert">{$t('drawRoom.invalid')}</p>
+      {/if}
     {/if}
   {/if}
   {#if currentTool === 'wall' && wallStart}

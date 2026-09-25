@@ -2,6 +2,7 @@ import type { Project, DetailKind } from '$lib/models/types';
 import { validateItemDetails, validateRetainedDetailState } from './itemDetails';
 import { refreshLegacyFurnitureCategories } from './legacyFurnitureCategories';
 import { validateCustomModelDefinitions } from './customModelDefinitions';
+import { DEFAULT_SOLID_FLOOR_COLOR } from './materials';
 
 /** Read untrusted native files without mutating their input or the active editor. */
 export function readProject(value: unknown): Project {
@@ -132,7 +133,8 @@ export function readProject(value: unknown): Project {
     elements('rooms', (item, path) => {
       booleans(item, ['floorOpening'], path);
       // Saved room/group memberships may outlive deleted walls/objects. Preserve metadata.
-      ids(item.walls, `${path}.walls`); defaults(item, { name: '', floorTexture: 'light-oak', area: 0 });
+      ids(item.walls, `${path}.walls`); defaults(item, { name: '', floorTexture: 'none', area: 0 });
+      if (item.floorTexture === 'none' && item.color === undefined) item.color = DEFAULT_SOLID_FLOOR_COLOR;
       strings(item, ['name', 'floorTexture', 'color', 'roomType'], path); number(item.area, `${path}.area`, 0);
       if (item.labelOffset !== undefined) point(item.labelOffset, `${path}.labelOffset`);
     });

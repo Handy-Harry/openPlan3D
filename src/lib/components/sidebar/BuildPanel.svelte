@@ -39,6 +39,11 @@
   let optMergeDistance = $state(15);
 
   function setTool(tool: Tool) {
+    if (tool === 'room') {
+      placingStair.set(false);
+      placingColumn.set(false);
+      placingEntourageId.set(null);
+    }
     if (tool === 'measure' || tool === 'annotate') activateMeasurementTool(tool);
     else selectedTool.set(tool);
     placingFurnitureId.set(null);
@@ -393,6 +398,20 @@
           <div class="text-left">
             <div class="font-medium">{$t('buildTools.wall')} <span class="text-gray-400 text-xs ml-1">W</span></div>
             <div class="text-xs text-gray-400">{$t('buildTools.wallHelp')}</div>
+          </div>
+        </button>
+
+        <button
+          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors {currentTool === 'room' ? 'bg-blue-50 text-slate-800 ring-1 ring-blue-200' : 'hover:bg-gray-50 text-gray-700'}"
+          aria-pressed={currentTool === 'room'}
+          onclick={() => setTool('room')}
+        >
+          <div class="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14"/><path d="M3 5l18 14" stroke-dasharray="2 2"/></svg>
+          </div>
+          <div class="text-left">
+            <div class="font-medium">{$t('buildTools.room')}</div>
+            <div class="text-xs text-gray-400">{$t('buildTools.roomHelp')}</div>
           </div>
         </button>
 

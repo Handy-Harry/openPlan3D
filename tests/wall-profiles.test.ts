@@ -1,16 +1,24 @@
 import { beforeEach, expect, it } from 'vitest';
 import { get } from 'svelte/store';
 import { Vector3 } from 'three';
-import { buildWallSegments, openingOnWall, roomCeilingHeight, wallPathSpans, doorPanelPose } from '$lib/utils/wallProfiles';
+import { buildWallSegments, openingOnWall, roomCeilingHeight, roomPlanHeight, wallPathSpans, doorPanelPose } from '$lib/utils/wallProfiles';
 import { createSlopedBoxGeometry } from '$lib/utils/slopedWallGeometry';
 import { addDoor, addWindow, addWall, currentProject, createDefaultProject, reverseWall, splitWall, updateWall, undo } from '$lib/stores/project';
-import { getWallHeightAt, type Door, type Wall, type Window } from '$lib/models/types';
+import { getWallHeightAt, type Door, type Wall, type Window, type Room } from '$lib/models/types';
 import { drawDoorOnWall } from '$lib/utils/canvasRenderer';
 
 const wall = (overrides: Partial<Wall> = {}): Wall => ({ id: 'a', start: { x: 0, y: 0 }, end: { x: 400, y: 0 }, height: 300, startHeight: 100, endHeight: 300, thickness: 20, color: '#444444', ...overrides });
 const door = (overrides: Partial<Door> = {}): Door => ({ id: 'd', wallId: 'a', position: 0.25, width: 100, height: 210, type: 'single', swingDirection: 'left', flipSide: false, ...overrides });
 const window = (overrides: Partial<Window> = {}): Window => ({ id: 'w', wallId: 'a', position: 0.25, width: 100, sillHeight: 100, height: 200, type: 'standard', ...overrides });
 beforeEach(() => currentProject.set(createDefaultProject()));
+
+it('shows a room height only when its ceiling height is known', () => {
+  const room: Room = { id: 'r', name: 'Room', walls: ['a'], floorTexture: 'none', area: 10 };
+  const levelWall = wall({ startHeight: 280, endHeight: 280 });
+  expect(roomPlanHeight(room, [levelWall])).toBe(280);
+  expect(roomPlanHeight(room, [wall()])).toBeUndefined();
+  expect(roomPlanHeight({ ...room, details: { ceilingHeight: 260 } }, [wall()])).toBe(260);
+});
 
 it('fits the entire rectangular opening beneath the low edge of the slope', () => {
   expect(openingOnWall(400, 100, 300, 0.5, 200, 0, 220)).toEqual({ left: 100, right: 300, bottom: 0, top: 150 });

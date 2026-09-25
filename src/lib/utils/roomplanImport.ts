@@ -11,6 +11,7 @@ import { createDefaultProject, createDefaultFloor } from '$lib/stores/project';
 import { detectRooms, getRoomPolygon } from '$lib/utils/roomDetection';
 import { validateRoomPlan } from './roomplanValidation';
 import { importedFurnitureCategory } from './furnitureCategories';
+import { DEFAULT_SOLID_FLOOR_COLOR } from './materials';
 export { validateRoomPlan, isRoomPlanJson } from './roomplanValidation';
 
 function uid(): string {
@@ -746,9 +747,9 @@ export function importRoomPlan(jsonData: any, options: RoomPlanImportOptions = r
         id: source?.id ?? uid(),
         name: rs.displayName || mapSectionLabel(rs.label),
         walls: source?.walls ?? [],
-        floorTexture: 'hardwood',
+        floorTexture: 'none',
         area: source?.area ?? 0,
-        ...(rs.color ? { color: rs.color } : {}),
+        color: rs.color || DEFAULT_SOLID_FLOOR_COLOR,
       });
     }
   }

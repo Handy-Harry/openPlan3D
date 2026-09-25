@@ -11,6 +11,9 @@ export const roomTypeLabels: Record<string, TranslationKey> = {
   "closet": "roomTypeLabel.closet",
   "laundry": "roomTypeLabel.laundry",
   "garage": "roomTypeLabel.garage",
+  "wc": "roomTypeLabel.wc",
+  "inkom": "roomTypeLabel.inkom",
+  "berging": "roomTypeLabel.berging",
   "custom": "roomTypeLabel.custom"
 };
 

@@ -42,7 +42,7 @@ export const activeFloor = derived(currentProject, ($p) => {
   return $p.floors.find((f) => f.id === $p.activeFloorId) ?? $p.floors[0] ?? null;
 });
 
-export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'text' | 'measure' | 'annotate';
+export type Tool = 'select' | 'wall' | 'room' | 'door' | 'window' | 'furniture' | 'text' | 'measure' | 'annotate';
 export const selectedTool = writable<Tool>('select');
 
 /** Shared activation for the sidebar and keyboard measurement tools. */
@@ -253,10 +253,12 @@ function mutate(fn: (floor: Floor) => void, description?: string, coalesceKey?: 
   currentProject.set({ ...p });
 }
 
+export const DEFAULT_WALL_THICKNESS_CM = 15;
+
 export function addWall(start: Point, end: Point): string {
   const id = uid();
   mutate((f) => {
-    f.walls.push({ id, start, end, thickness: 15, height: 280, startHeight: 280, endHeight: 280, color: '#444444' });
+    f.walls.push({ id, start, end, thickness: DEFAULT_WALL_THICKNESS_CM, height: 280, startHeight: 280, endHeight: 280, color: '#444444' });
   }, 'Added wall');
   if (typeof window !== 'undefined') {
     import('$lib/stores/onboarding.svelte').then(m => m.triggerTip('first-wall', end.x > 400 ? 300 : end.x + 20, 120)).catch(() => {});
@@ -275,7 +277,7 @@ export function removeWall(id: string) {
 export function addDoor(wallId: string, position: number, doorType: Door['type'] = 'single'): string {
   const id = uid();
   const defaults: Record<Door['type'], { width: number; height: number }> = {
-    single: { width: 90, height: 210 },
+    single: { width: 83, height: 210 },
     double: { width: 150, height: 210 },
     sliding: { width: 180, height: 210 },
     french: { width: 150, height: 210 },

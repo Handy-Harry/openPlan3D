@@ -1,4 +1,4 @@
-import { getWallStartHeight, getWallEndHeight, type Wall, type Door, type Window, type Point } from '$lib/models/types';
+import { getWallStartHeight, getWallEndHeight, type Wall, type Door, type Window, type Point, type Room } from '$lib/models/types';
 
 export interface WallOpening { left: number; right: number; bottom: number; top: number }
 export interface WallSegment { width: number; bottomY: number; topYLeft: number; topYRight: number; offsetX: number }
@@ -119,6 +119,13 @@ export function roomCeilingHeight(wallIds: string[], walls: Wall[]): number | un
   if (!boundary.length || boundary.some(w => !w)) return undefined;
   const height = getWallStartHeight(boundary[0]!);
   return height > 0 && boundary.every(w => Math.abs(getWallStartHeight(w!) - height) < 0.01 && Math.abs(getWallEndHeight(w!) - height) < 0.01) ? height : undefined;
+}
+
+/** Height shown with a room's plan dimensions, when a single height is known. */
+export function roomPlanHeight(room: Room, walls: Wall[]): number | undefined {
+  const customHeight = room.details?.ceilingHeight;
+  if (typeof customHeight === 'number' && Number.isFinite(customHeight) && customHeight > 0) return customHeight;
+  return Array.isArray(room.walls) ? roomCeilingHeight(room.walls, walls) : undefined;
 }
 
 /** Pose for the slightly open 3D door leaf, in world X/Z coordinates. */

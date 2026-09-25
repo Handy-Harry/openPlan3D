@@ -16,7 +16,7 @@
   import { wallLength as calcWallLength, MIN_WALL_LENGTH, type WallEndpoint } from '$lib/utils/wallEditing';
   import { openingOnWall } from '$lib/utils/wallProfiles';
   import { getEntourageDef } from '$lib/utils/entourageCatalog';
-  import { floorMaterials, wallColors } from '$lib/utils/materials';
+  import { DEFAULT_SOLID_FLOOR_COLOR, floorMaterials, wallColors } from '$lib/utils/materials';
   import { getCatalogItem } from '$lib/utils/furnitureCatalog';
   import { projectSettings, formatLength, formatArea, parseLengthInput } from '$lib/stores/settings';
     import type { Floor, Wall, Door, Window as Win, Room, FurnitureItem, Stair, Column, RoomCategory, TextAnnotation } from '$lib/models/types';
@@ -298,8 +298,9 @@
   }
   function onRoomFloor(texture: string) {
     if (!selectedRoom) return;
-    updateRoom(selectedRoom.id, { floorTexture: texture });
-    updateDetectedRoom(selectedRoom.id, { floorTexture: texture });
+    const updates = { floorTexture: texture, ...(texture === 'none' && !selectedRoom.color ? { color: DEFAULT_SOLID_FLOOR_COLOR } : {}) };
+    updateRoom(selectedRoom.id, updates);
+    updateDetectedRoom(selectedRoom.id, updates);
   }
   function onRoomColor(color: string) {
     if (!selectedRoom) return;
@@ -318,6 +319,9 @@
     { id: 'closet', label: 'Closet', icon: '👔' },
     { id: 'laundry', label: 'Laundry', icon: '🧺' },
     { id: 'garage', label: 'Garage', icon: '🚗' },
+    { id: 'wc', label: 'WC', icon: '🚽' },
+    { id: 'inkom', label: 'Inkom', icon: '🚪' },
+    { id: 'berging', label: 'Berging', icon: '📦' },
     { id: 'custom', label: 'Custom', icon: '✏️' },
   ];
 
@@ -326,14 +330,16 @@
     const typeId = (e.target as HTMLSelectElement).value;
     const rt = roomTypes.find(t => t.id === typeId);
     if (rt && rt.id !== 'custom') {
-      updateRoom(selectedRoom.id, { name: rt.label });
-      updateDetectedRoom(selectedRoom.id, { name: rt.label });
+      const name = $locale === 'en' ? $t(roomTypeLabels[rt.id]) : rt.label;
+      updateRoom(selectedRoom.id, { name });
+      updateDetectedRoom(selectedRoom.id, { name });
     }
   }
 
   let selectedRoomType = $derived(() => {
     if (!selectedRoom) return 'custom';
-    const match = roomTypes.find(t => t.label === selectedRoom!.name);
+    const translate = $t;
+    const match = roomTypes.find(t => t.label === selectedRoom!.name || translate(roomTypeLabels[t.id]) === selectedRoom!.name);
     return match ? match.id : 'custom';
   });
 

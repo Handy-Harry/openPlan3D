@@ -11,6 +11,30 @@ it('records the centerline area convention for the shared native rectangle basel
   // Keep this baseline explicit until the cross-platform convention is aligned.
 });
 
+it('defaults new and untouched legacy rooms to solid light blue while preserving chosen finishes', () => {
+  const floor = roomProject().floors[0];
+  const detected = resolveRooms(floor)[0];
+  expect(detected).toMatchObject({ floorTexture: 'none', color: '#dbeafe' });
+
+  floor.rooms = [{ ...detected, floorTexture: 'hardwood', color: undefined }];
+  expect(resolveRooms(floor)[0]).toMatchObject({ floorTexture: 'none', color: '#dbeafe' });
+
+  floor.rooms = [{ ...detected, floorTexture: 'light-oak', color: undefined }];
+  const chosen = resolveRooms(floor)[0];
+  expect(chosen.floorTexture).toBe('light-oak');
+  expect(chosen.color).toBeUndefined();
+});
+
+it('shows saved automatic room names in Dutch without changing custom names', () => {
+  const floor = roomProject().floors[0];
+  const detected = resolveRooms(floor)[0];
+  floor.rooms = [{ ...detected, name: 'Room 1' }];
+  expect(resolveRooms(floor)[0].name).toBe('Kamer 1');
+  expect(floor.rooms[0].name).toBe('Room 1');
+  floor.rooms[0].name = 'Office';
+  expect(resolveRooms(floor)[0].name).toBe('Office');
+});
+
 it('preserves custom room metadata by wall identity after geometry changes', () => {
   const floor = roomProject().floors[0];
   const detected = resolveRooms(floor)[0];
@@ -33,7 +57,7 @@ it('retains unlabeled rooms when only part of a floor has saved metadata', () =>
   const rooms = resolveRooms(floor);
   expect(rooms).toHaveLength(2);
   expect(rooms[0].name).toBe('Office');
-  expect(rooms[1].name).toBe('Room 2');
+  expect(rooms[1].name).toBe('Kamer 2');
 });
 
 it('does not mix metadata between rooms with the same display name', () => {
@@ -46,7 +70,7 @@ it('does not mix metadata between rooms with the same display name', () => {
 it('does not resurrect undone metadata from a previous canvas frame', () => {
   const floor = roomProject().floors[0];
   const previous = resolveRooms(floor).map(room => ({ ...room, id: 'stable-id', name: 'Undone rename' }));
-  expect(resolveRooms(floor, previous)[0]).toMatchObject({ id: 'stable-id', name: 'Room 1' });
+  expect(resolveRooms(floor, previous)[0]).toMatchObject({ id: 'stable-id', name: 'Kamer 1' });
 });
 
 it('drops rooms that no longer form a closed boundary', () => {

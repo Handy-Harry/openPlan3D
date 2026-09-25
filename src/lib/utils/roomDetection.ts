@@ -1,8 +1,13 @@
 import type { Wall, Point, Room, Floor } from '$lib/models/types';
 import { wallPathSpans } from './wallProfiles';
 import { roomHoles, roomInteriorPoint } from './roomNesting';
+import { DEFAULT_SOLID_FLOOR_COLOR } from './materials';
 
 const EPSILON = 5; // snap distance for matching endpoints
+
+function localizeAutomaticRoomName(name: string): string {
+  return name.replace(/^Room (\d+)$/, 'Kamer $1');
+}
 
 function ptEq(a: Point, b: Point): boolean {
   return Math.abs(a.x - b.x) < EPSILON && Math.abs(a.y - b.y) < EPSILON;
@@ -271,9 +276,10 @@ function detectSplitRooms(splitEdges: Edge[]): Room[] {
       polygons.push(poly);
       rooms.push({
         id: `room-${roomCount}-${Date.now()}`,
-        name: `Room ${roomCount}`,
+        name: `Kamer ${roomCount}`,
         walls: uniqueWalls,
-        floorTexture: 'hardwood',
+        floorTexture: 'none',
+        color: DEFAULT_SOLID_FLOOR_COLOR,
         area: Math.round(area / 10000 * 100) / 100, // cm² to m²
       });
     }
@@ -326,7 +332,17 @@ function resolveSplitRooms(floor: Pick<Floor, 'walls' | 'rooms'>, previousRooms:
   const previous = indexed(previousRooms);
   return (floor.walls.length < 2 ? [] : detectSplitRooms(splitEdges)).map(room => {
     const metadata = saved.get(key(room));
-    if (metadata) return { ...room, ...metadata, walls: room.walls, area: metadata.floorOpening ? 0 : room.area };
+    if (metadata) {
+      // The former auto-detected finish was "hardwood". Existing rooms with
+      // that untouched default follow the new solid-blue default too.
+      const finish = metadata.floorTexture === 'hardwood' && !metadata.color
+        ? { floorTexture: 'none', color: DEFAULT_SOLID_FLOOR_COLOR }
+        : {};
+      const resolved = { ...room, ...metadata, ...finish, name: localizeAutomaticRoomName(metadata.name),
+        walls: room.walls, area: metadata.floorOpening ? 0 : room.area };
+      if (metadata.floorTexture !== 'none' && metadata.floorTexture !== 'hardwood' && !metadata.color) delete resolved.color;
+      return resolved;
+    }
     // Only the transient ID survives. Falling back to old metadata would undo
     // an intentional metadata removal (e.g. undoing a room rename).
     return { ...room, id: previous.get(key(room))?.id ?? room.id };

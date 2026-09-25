@@ -5,6 +5,7 @@ import { stairPlanBounds } from './stairPlanGeometry';
 import { formatArea, formatLength } from '$lib/stores/settings';
 import { wallLength, wallPointAt, wallTangentAt, wallEdgeInsets } from './canvasRenderer';
 import { roomCentroid, roomLabelPosition } from './roomDetection';
+import { roomPlanHeight } from './wallProfiles';
 import type { Room, Point } from '$lib/models/types';
 import type { Floor, Wall } from '$lib/models/types';
 import { wallPlanBounds } from './wallPlanGeometry';
@@ -117,13 +118,15 @@ export function planContentBounds(floor: Floor, options: {
         }
       }
     }
-    if (options.automaticDimensions?.internal) for (const { polygon } of options.dimensionRooms ?? []) {
+    if (options.automaticDimensions?.internal) for (const { room, polygon } of options.dimensionRooms ?? []) {
       if (polygon.length < 3) continue;
       const width = Math.max(...polygon.map(p => p.x)) - Math.min(...polygon.map(p => p.x));
       const depth = Math.max(...polygon.map(p => p.y)) - Math.min(...polygon.map(p => p.y));
       if (width <= 10 || depth <= 10) continue;
       const center = roomCentroid(polygon), size = Math.max(9, 10 * scale);
-      caption(`${formatLength(width, options.units ?? 'metric')} × ${formatLength(depth, options.units ?? 'metric')}`,
+      const roomHeight = roomPlanHeight(room, floor.walls);
+      const dimensions = `${formatLength(width, options.units ?? 'metric')} × ${formatLength(depth, options.units ?? 'metric')}`;
+      caption(roomHeight === undefined ? dimensions : `${dimensions} × ${formatLength(roomHeight, options.units ?? 'metric')}`,
         center.x, center.y + (Math.max(11, 13 * scale) + 2) / scale, `${size}px sans-serif`, size);
     }
     if (options.measurementsVisible !== false) for (const m of floor.measurements ?? []) {

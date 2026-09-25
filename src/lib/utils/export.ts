@@ -15,12 +15,13 @@ import { furniturePlanBounds } from './furniturePlanBounds';
 import { canvasPNG } from './canvasPNG';
 import { planOpening } from './planOpening';
 import { wallPlanBounds, wallPlanDimension } from './wallPlanGeometry';
-import type { Project, Floor } from '$lib/models/types';
+import type { Project, Floor, Room, Point, Window as PlanWindow } from '$lib/models/types';
 import { getCatalogItem, getFurnitureSize } from '$lib/utils/furnitureCatalog';
-import { resolveRooms, getRoomPolygon, roomLabelPosition } from '$lib/utils/roomDetection';
+import { resolveRooms, getRoomPolygon, roomLabelPosition, roomCentroid } from '$lib/utils/roomDetection';
 import { drawStair, drawFurnitureItem, drawColumn, drawDoorOnWall, drawWindowOnWall, drawEntourageItems, drawTextAnnotations, drawAnnotations, drawPersistedMeasurements } from '$lib/utils/canvasRenderer';
 import type { CanvasState } from '$lib/utils/canvasInteraction';
 import { projectSettings, formatArea, formatLength } from '$lib/stores/settings';
+import { roomPlanHeight } from '$lib/utils/wallProfiles';
 import { get } from 'svelte/store';
 import jsPDF from 'jspdf';
 
@@ -167,6 +168,102 @@ function drawOpeningsOnCanvas(
     if (floor.doors.includes(opening as typeof floor.doors[number])) drawDoorOnWall(cs, frame.wall, symbol as typeof floor.doors[number]);
     else drawWindowOnWall(cs, frame.wall, symbol as typeof floor.windows[number]);
   }
+}
+
+type PdfLabelBox = { left: number; right: number; top: number; bottom: number };
+
+function boxesOverlap(a: PdfLabelBox, b: PdfLabelBox): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function roomLabelBox(ctx: CanvasRenderingContext2D, room: Room, polygon: Point[], holes: Point[][],
+  floor: Floor, units: 'metric' | 'imperial', minX: number, minY: number, pad: number) {
+  const anchor = roomLabelPosition(room, polygon, holes);
+  const x = anchor.x - minX + pad, y = anchor.y - minY + pad;
+  const xs = polygon.map(point => point.x), ys = polygon.map(point => point.y);
+  const minSpan = Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  const compact = minSpan < 145;
+  const nameSize = compact ? 12 : Math.max(15, Math.min(22, minSpan / 8));
+  const detailSize = compact ? 11 : Math.max(13, nameSize - 3);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const depth = Math.max(...ys) - Math.min(...ys);
+  const height = roomPlanHeight(room, floor.walls);
+  const dimensions = `${formatLength(width, units)} × ${formatLength(depth, units)}${height === undefined ? '' : ` × ${formatLength(height, units)}`}`;
+  const lines = compact
+    ? [{ text: room.name, size: nameSize, bold: true },
+      { text: `${formatArea(room.area, units)}${height === undefined ? '' : ` · H ${formatLength(height, units)}`}`, size: 9, bold: false }]
+    : [{ text: room.name, size: nameSize, bold: true }, { text: formatArea(room.area, units), size: detailSize, bold: false },
+      { text: dimensions, size: detailSize, bold: false }];
+  let textWidth = 0;
+  for (const line of lines) {
+    ctx.font = `${line.bold ? 'bold ' : ''}${line.size}px sans-serif`;
+    textWidth = Math.max(textWidth, ctx.measureText(line.text).width);
+  }
+  const lineStep = Math.max(...lines.map(line => line.size)) + (compact ? 1 : 4);
+  const box = { left: x - textWidth / 2 - 7, right: x + textWidth / 2 + 7,
+    top: y - lines.length * lineStep / 2 - (compact ? 2 : 4), bottom: y + lines.length * lineStep / 2 + (compact ? 2 : 4) };
+  return { x, y, lines, lineStep, box };
+}
+
+function drawPdfRoomAnnotation(ctx: CanvasRenderingContext2D, room: Room, polygon: Point[], holes: Point[][],
+  floor: Floor, units: 'metric' | 'imperial', minX: number, minY: number, pad: number) {
+  if (polygon.length < 3) return;
+  const annotation = roomLabelBox(ctx, room, polygon, holes, floor, units, minX, minY, pad);
+  ctx.save();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(annotation.box.left, annotation.box.top,
+    annotation.box.right - annotation.box.left, annotation.box.bottom - annotation.box.top);
+  ctx.fillStyle = '#1e293b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  let y = annotation.y - (annotation.lines.length - 1) * annotation.lineStep / 2;
+  for (const line of annotation.lines) {
+    ctx.font = `${line.bold ? 'bold ' : ''}${line.size}px sans-serif`;
+    ctx.fillText(line.text, annotation.x, y);
+    y += annotation.lineStep;
+  }
+  ctx.restore();
+}
+
+function drawPdfWindowDimensions(
+  ctx: CanvasRenderingContext2D, window: PlanWindow, floor: Floor, roomCenters: Point[],
+  units: 'metric' | 'imperial', minX: number, minY: number, pad: number, occupied: PdfLabelBox[],
+) {
+  const source = floor.walls.find(wall => wall.id === window.wallId);
+  if (!source) return;
+  const frame = planOpening(source, window.position, window.width);
+  if (!frame) return;
+  const wall = frame.wall;
+  const center = { x: wall.start.x + (wall.end.x - wall.start.x) * frame.position,
+    y: wall.start.y + (wall.end.y - wall.start.y) * frame.position };
+  const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1) return;
+  const normal = { x: -dy / length, y: dx / length };
+  const nearest = roomCenters.reduce<Point | null>((best, point) => !best || Math.hypot(point.x - center.x, point.y - center.y) < Math.hypot(best.x - center.x, best.y - center.y) ? point : best, null);
+  const side = nearest && (nearest.x - center.x) * normal.x + (nearest.y - center.y) * normal.y < 0 ? -1 : 1;
+  const lines = [`B ${formatLength(window.width, units)}`, `H ${formatLength(window.height, units)}`];
+  ctx.save();
+  ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const labelWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
+  const baseOffset = wall.thickness / 2 + Math.max(45, labelWidth / 2 + 12);
+  let chosen: { x: number; y: number; box: PdfLabelBox } | null = null;
+  for (const offsetExtra of [0, 30, 60]) {
+    for (const along of [0, -window.width / 2 - 30, window.width / 2 + 30]) {
+      const x = center.x + normal.x * side * (baseOffset + offsetExtra) + dx / length * along - minX + pad;
+      const y = center.y + normal.y * side * (baseOffset + offsetExtra) + dy / length * along - minY + pad;
+      const box = { left: x - labelWidth / 2 - 6, right: x + labelWidth / 2 + 6, top: y - 22, bottom: y + 22 };
+      if (occupied.some(other => boxesOverlap(box, other))) continue;
+      chosen = { x, y, box }; break;
+    }
+    if (chosen) break;
+  }
+  if (!chosen) { ctx.restore(); return; }
+  occupied.push(chosen.box);
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.fillRect(chosen.box.left, chosen.box.top, labelWidth + 12, 44);
+  ctx.fillStyle = '#0f4c5c';
+  ctx.fillText(lines[0], chosen.x, chosen.y - 10);
+  ctx.fillText(lines[1], chosen.x, chosen.y + 10);
+  ctx.restore();
 }
 
 /**
@@ -653,18 +750,11 @@ export async function exportPDF(project: Project) {
     const def=getEntourageDef(item.defId)?undefined:snapshot.customEntourage?.find(d=>d.id===item.defId);
     return def?[def]:[];
   }))];
-  // Capture the optional main view before waiting, so it belongs to this snapshot.
-  const source=document.querySelector<HTMLCanvasElement>('canvas[data-plan3d-canvas="true"]');
-  const capture=source?{width:source.width,height:source.height,image:undefined as string|undefined}:null;
-  if(source && capture && capture.width>10 && capture.height>10) try {
-    const context=source.getContext('webgl2') || source.getContext('webgl');
-    if(context && !context.isContextLost()) capture.image=source.toDataURL('image/png');
-  } catch { /* The completed plan can still export without the optional view. */ }
   const preparedImages=new Map(await Promise.all(definitions.map(async def=>[def.id,await prepareEntourageImage(def)] as const)));
-  return renderPDF(snapshot,preparedImages,capture);
+  return renderPDF(snapshot,preparedImages);
 }
 
-function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImageElement>, capture: {width:number;height:number;image?:string}|null) {
+function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImageElement>) {
   const floor = project.floors.find(f => f.id === project.activeFloorId) ?? project.floors[0];
   if (!floor) return;
   const entourage=(floor.entourage ?? []).flatMap(item=>{
@@ -675,8 +765,8 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
 
   const settings = get(projectSettings);
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const pw = pdf.internal.pageSize.getWidth();   // ~297
-  const ph = pdf.internal.pageSize.getHeight();   // ~210
+  let pw = pdf.internal.pageSize.getWidth();   // ~297
+  let ph = pdf.internal.pageSize.getHeight();   // ~210
   const margin = 10;
   const titleBlockH = 22;
 
@@ -720,18 +810,16 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
     pdf.text(`Date: ${today}`, col1 + 4, tbY + 9);
     pdf.text(`Units: ${settings.units}`, col1 + 4, tbY + 15);
 
-    // Branding
-    pdf.setFontSize(9);
+    // Office details
+    pdf.setFontSize(8);
     pdf.setFont('helvetica', 'bold');
-    pdf.text('openplan3d.com', col2 + 4, tbY + 9);
+    pdf.text('Expertisebureau Peeters & Partners', col2 + 4, tbY + 6);
     pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(7);
-    pdf.text('Created with Open 3D Floor Planner', col2 + 4, tbY + 15);
+    pdf.text('Stalkerweg 26', col2 + 4, tbY + 12);
+    pdf.text('3690 Zutendaal', col2 + 4, tbY + 18);
   }
 
   // ── Page 1: Floor Plan ──
-  drawPageBorder();
-
   // Render floor plan onto an offscreen canvas then embed as image
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const w of floor.walls) {
@@ -763,6 +851,16 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
   const pad = 80;
   const planW = maxX - minX + pad * 2;
   const planH = maxY - minY + pad * 2;
+  const landscapeFit = Math.min((297 - margin * 2 - 4) / planW, (210 - margin * 2 - titleBlockH - 6) / planH);
+  const portraitFit = Math.min((210 - margin * 2 - 4) / planW, (297 - margin * 2 - titleBlockH - 6) / planH);
+  if (portraitFit > landscapeFit * 1.05) {
+    pdf.addPage('a4', 'portrait');
+    pdf.deletePage(1);
+    pdf.setPage(1);
+    pw = pdf.internal.pageSize.getWidth();
+    ph = pdf.internal.pageSize.getHeight();
+  }
+  drawPageBorder();
   const scale = Math.min(2, 4096 / Math.max(planW, planH));
   const offscreen = document.createElement('canvas');
   offscreen.width = Math.min(4096, Math.ceil(planW * scale));
@@ -772,29 +870,18 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, planW, planH);
 
-  // Room fills
-  const ROOM_COLORS = ['#bfdbfe', '#fde68a', '#bbf7d0', '#fecaca', '#ddd6fe', '#a5f3fc', '#fed7aa'];
   const rooms = resolveRooms(floor);
   const polygons = rooms.map(room => getRoomPolygon(room, floor.walls));
   const holes = roomHoles(polygons);
-  for (let ri = 0; ri < rooms.length; ri++) {
-    const room = rooms[ri];
-    const poly = polygons[ri];
-    if (poly.length < 3) continue;
-    ctx.fillStyle = ROOM_COLORS[ri % ROOM_COLORS.length];
-    ctx.globalAlpha = 0.4;
-    traceRoomRings(ctx, poly, holes[ri], p => ({x:p.x-minX+pad,y:p.y-minY+pad}));
-    if (!room.floorOpening) ctx.fill('evenodd');
-    ctx.globalAlpha = 1;
-    const c = roomLabelPosition(room, poly, holes[ri]);
-    ctx.fillStyle = '#444';
-    ctx.font = 'bold 13px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(room.name, c.x - minX + pad, c.y - minY + pad);
-    ctx.fillStyle = '#888';
-    ctx.font = '11px sans-serif';
-    ctx.fillText(formatArea(room.area, settings.units), c.x - minX + pad, c.y - minY + pad + 15);
-  }
+  ctx.save();
+  ctx.fillStyle = '#93c5fd';
+  ctx.globalAlpha = 0.28;
+  rooms.forEach((room, index) => {
+    if (room.floorOpening || polygons[index].length < 3) return;
+    traceRoomRings(ctx, polygons[index], holes[index], point => ({ x: point.x - minX + pad, y: point.y - minY + pad }));
+    ctx.fill('evenodd');
+  });
+  ctx.restore();
 
   // Walls
   ctx.strokeStyle = '#333';
@@ -806,13 +893,6 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
     if (wall.curvePoint) ctx.quadraticCurveTo(wall.curvePoint.x - minX + pad, wall.curvePoint.y - minY + pad, wall.end.x - minX + pad, wall.end.y - minY + pad);
         else ctx.lineTo(wall.end.x - minX + pad, wall.end.y - minY + pad);
     ctx.stroke();
-    const { length: len, point: midpoint } = wallPlanDimension(wall);
-    const mx = midpoint.x - minX + pad;
-    const my = midpoint.y - minY + pad;
-    ctx.fillStyle = '#666';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${len} cm`, mx, my);
   }
 
   // Entourage symbols
@@ -822,6 +902,13 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
 
   // Doors and windows (shared full-fidelity renderer)
   drawOpeningsOnCanvas(ctx, floor, minX, minY, pad);
+
+  // Reserve room labels so window dimensions do not overlap them.
+  const occupiedLabels: PdfLabelBox[] = rooms.flatMap((room, index) => polygons[index].length < 3 ? [] :
+    [roomLabelBox(ctx, room, polygons[index], holes[index], floor, settings.units, minX, minY, pad).box]);
+  rooms.forEach((room, index) => drawPdfRoomAnnotation(ctx, room, polygons[index], holes[index], floor, settings.units, minX, minY, pad));
+  const roomCenters = polygons.filter(poly => poly.length >= 3).map(poly => roomCentroid(poly));
+  for (const window of floor.windows) drawPdfWindowDimensions(ctx, window, floor, roomCenters, settings.units, minX, minY, pad, occupiedLabels);
 
   for (const item of floor.furniture) drawFurnitureItem({
     ctx, width: pad * 2, height: pad * 2, zoom: 1, camX: minX, camY: minY,
@@ -849,116 +936,6 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
 
   drawTitleBlock();
 
-  // Room schedule: repeat headings and reserve the title block on every page.
-  if (rooms.length > 0) {
-    const tX = margin + 6;
-    const colWidths = [12, 70, 45, 55, 65];
-    const headers = ['#', 'Room Name', 'Type', 'Area', 'Floor Texture'];
-    const tableW = colWidths.reduce((a, b) => a + b, 0);
-    const bottom = ph - margin - titleBlockH - 4;
-    let tY = 0;
-    const beginSchedulePage = () => {
-      pdf.addPage('a4', 'landscape');
-      drawPageBorder();
-      drawTitleBlock();
-      pdf.setTextColor(40);
-      pdf.setFontSize(14);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Room Schedule', tX, margin + 12);
-      tY = margin + 20;
-      pdf.setFillColor(50, 50, 60);
-      pdf.rect(tX, tY, tableW, 8, 'F');
-      pdf.setTextColor(255);
-      pdf.setFontSize(9);
-      let x = tX;
-      headers.forEach((header, i) => { pdf.text(header, x + 3, tY + 5.5); x += colWidths[i]; });
-      tY += 8;
-      pdf.setTextColor(40);
-      pdf.setFont('helvetica', 'normal');
-    };
-    beginSchedulePage();
-    let totalArea = 0;
-    for (let ri = 0; ri < rooms.length; ri++) {
-      const room = rooms[ri];
-      totalArea += room.area;
-      const values = [String(ri + 1), room.name, room.roomType || 'indoor',
-        formatArea(room.area, settings.units), room.floorTexture || '-'];
-      const cells: string[][] = values.map((value, i) => pdf.splitTextToSize(value, colWidths[i] - 6));
-      const lineCount = Math.max(1, ...cells.map(cell => cell.length));
-      let offset = 0;
-      while (offset < lineCount) {
-        // Four millimetres per line plus four millimetres of row padding.
-        let capacity = Math.floor((bottom - tY - 4) / 4);
-        const remaining = lineCount - offset;
-        const fullPageCapacity = Math.floor((bottom - (margin + 28) - 4) / 4);
-        if (capacity < 1 || (remaining > capacity && remaining <= fullPageCapacity)) {
-          beginSchedulePage();
-          capacity = fullPageCapacity;
-        }
-        const count = Math.min(remaining, capacity), height = count * 4 + 4;
-        if (ri % 2 === 0) {
-          pdf.setFillColor(245, 245, 250);
-          pdf.rect(tX, tY, tableW, height, 'F');
-        }
-        pdf.setDrawColor(200);
-        pdf.setLineWidth(0.15);
-        pdf.rect(tX, tY, tableW, height);
-        let x = tX;
-        cells.forEach((cell, i) => {
-          cell.slice(offset, offset + count).forEach((line, li) => pdf.text(line, x + 3, tY + 5 + li * 4));
-          x += colWidths[i];
-        });
-        tY += height;
-        offset += count;
-      }
-    }
-    // Keep the total and summary together, clear of the footer.
-    if (tY + 22 > bottom) beginSchedulePage();
-    pdf.setFillColor(50, 50, 60);
-    pdf.rect(tX, tY, tableW, 8, 'F');
-    pdf.setTextColor(255);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('TOTAL', tX + colWidths[0] + 3, tY + 5.5);
-    pdf.text(formatArea(totalArea, settings.units), tX + colWidths[0] + colWidths[1] + colWidths[2] + 3, tY + 5.5);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setTextColor(80);
-    pdf.text(`${rooms.length} rooms  ·  ${floor.walls.length} walls  ·  ${floor.doors.length} doors  ·  ${floor.windows.length} windows  ·  ${floor.furniture.length} furniture items`, tX, tY + 18);
-  }
-
-  let omitted3D = Boolean(capture);
-  if (capture?.image && capture.width > 10 && capture.height > 10) {
-    const completedPages = pdf.getNumberOfPages();
-    try {
-      const img3d = capture.image;
-      if (img3d.length > 100) {
-        pdf.addPage('a4', 'landscape');
-        drawPageBorder();
-
-        pdf.setFontSize(14);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setTextColor(40);
-        pdf.text('3D Perspective View', margin + 6, margin + 12);
-
-        const da3W = pw - margin * 2 - 4;
-        const da3H = ph - margin * 2 - titleBlockH - 20;
-        const a3 = capture.width / capture.height;
-        let w3 = da3W;
-        let h3 = da3W / a3;
-        if (h3 > da3H) { h3 = da3H; w3 = da3H * a3; }
-        const x3 = margin + 2 + (da3W - w3) / 2;
-        const y3 = margin + 18 + (da3H - h3) / 2;
-        pdf.addImage(img3d, 'PNG', x3, y3, w3, h3);
-
-        drawTitleBlock();
-        omitted3D = false;
-      }
-    } catch {
-      // Image encoding may fail after addPage. Keep the completed plan/schedule
-      // pages and remove any unfinished optional page before saving.
-      while (pdf.getNumberOfPages() > completedPages) pdf.deletePage(pdf.getNumberOfPages());
-    }
-  }
-
   pdf.save(`${project.name || 'floorplan'}.pdf`);
-  return { omitted3D };
+  return { omitted3D: false };
 }

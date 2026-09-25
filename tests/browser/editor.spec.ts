@@ -228,7 +228,7 @@ test('sloped walls preserve heights and openings through edits, reversal, elevat
   expect(reversed.floors[0].doors[0]).toMatchObject({ position: 0.4, swingDirection: 'right', flipSide: true, width: 100, height: 210 });
   expect(reversed.floors[0].windows[0]).toMatchObject({ position: 0.8, width: 100, height: 150, sillHeight: 90 });
   await page.getByTitle('View this wall face-on and edit its doors and windows', { exact: true }).click();
-  await expect(page.getByText('6 m × 3.2 m → 1.8 m', { exact: true })).toBeVisible();
+  await expect(page.getByText('6.00 m × 3.20 m → 1.80 m', { exact: true })).toBeVisible();
   await testInfo.attach('sloped-elevation', { body: await page.screenshot(), contentType: 'image/png' });
   await page.getByRole('button', { name: 'Plan', exact: true }).click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();

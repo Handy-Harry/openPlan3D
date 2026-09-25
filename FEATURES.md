@@ -9,6 +9,31 @@ for the commands used to run checks.
 
 ## Web editor
 
+Build → Draw Room creates four rectangular walls from two clicked corners with a
+live preview, or exact width then Tab then length entry in centimeters (decimal
+point/comma accepted). Each typed dimension constrains its own axis. Tab switches
+dimensions only during the active draft; otherwise its 2D/3D shortcut remains.
+Compact labels follow the rectangle edges like Draw Wall, with the active
+dimension in amber; keyboard input stays on the canvas, without a separate form.
+Escape cancels the draft; placement is one undo operation. Dimensions are clear
+interior spans: the default-thickness walls are placed outside the clicked
+rectangle. Existing rooms and the separate wall tool are unchanged. Coverage:
+[room drawing](tests/browser/draw-room.spec.ts).
+With Snap enabled, Draw Room anchors to straight horizontal/vertical wall
+endpoints and adjusts the interior corner for wall thickness and drawing direction.
+Existing collinear wall spans are reused, preserving their IDs and openings;
+only missing spans are added. T-junction detection supports partially shared walls.
+Angled/curved-wall snapping is outside this rectangular tool's scope.
+Coverage: [shared-wall drawing](tests/browser/draw-room-snap.spec.ts).
+The opposite corner can also snap to an existing wall endpoint. A green marker
+shows the target; previously typed dimensions only allow matching targets.
+The other draft rectangle corners also align to existing endpoints: for example,
+its top-right corner can highlight and snap while the pointer remains at the
+bottom-right corner. Matching shared wall spans are reused.
+Edge-to-edge wall labels include the half-thickness of straight shared walls at
+T-junctions, even when the shared wall is not split. The 135 × 80 cm corner-room
+regression is covered in [room drawing geometry tests](tests/room-drawing.test.ts).
+
 | Capability | Current scope | Evidence and limits |
 | --- | --- | --- |
 | Walls and room geometry | Implemented: straight/curved boundaries, detected room polygons, labels and areas. | [Room tests](tests/rooms.test.ts), [crossing boundaries](tests/browser/crossing-rooms.spec.ts), [curved rooms](tests/browser/curved-rooms.spec.ts). Native and web area totals are not an established cross-platform guarantee. |

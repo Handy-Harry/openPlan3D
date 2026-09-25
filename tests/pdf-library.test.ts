@@ -21,7 +21,7 @@ vi.mock('jspdf', async importOriginal => {
   };
 });
 
-it.each(['absent', 'tainted', 'invalid-image'] as const)('preserves a valid plan and schedule PDF when 3D is %s', async failure => {
+it.each(['absent', 'tainted', 'invalid-image'] as const)('exports a single plan page when 3D is %s', async failure => {
   const context = new Proxy({ measureText: () => ({ width: 30 }) }, {
     get: (target, key) => target[key as keyof typeof target] ?? (() => {}),
   });
@@ -44,10 +44,11 @@ it.each(['absent', 'tainted', 'invalid-image'] as const)('preserves a valid plan
 
   expect(result.filename).toBe('Regression plan.pdf');
   expect(result.pdf).toMatch(/^%PDF-1\.[0-9]/);
-  expect(result.pdf).toContain('/Count 2');
+  expect(result.pdf).toContain('/Count 1');
   expect(result.pdf).toContain('/Subtype /Image');
   expect(result.pdf).toContain('(Regression plan)');
-  expect(result.pdf).toContain('(Room Schedule)');
+  expect(result.pdf).not.toContain('(Room Schedule)');
+  expect(result.pdf).toContain('(Expertisebureau Peeters & Partners)');
   expect(result.pdf).toContain('%%EOF');
   expect(result.pdf).not.toContain('(3D Perspective View)');
 });

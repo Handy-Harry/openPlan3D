@@ -13,9 +13,11 @@ export interface WallColor {
   texture?: 'brick' | 'stone' | 'wood-panel' | 'concrete' | 'tile';
 }
 
+export const DEFAULT_SOLID_FLOOR_COLOR = '#dbeafe';
+
 export const floorMaterials: FloorMaterial[] = [
   // 'none' = no texture; floor renders as a solid color (room.color when set)
-  { id: 'none', name: 'Solid Color', color: '#e8e4dc', roughness: 0.9 },
+  { id: 'none', name: 'Solid Color', color: DEFAULT_SOLID_FLOOR_COLOR, roughness: 0.9 },
   { id: 'light-oak', name: 'Light Oak', color: '#ddc9a8', pattern: 'hardwood', roughness: 0.8 },
   { id: 'walnut', name: 'Walnut', color: '#8b6f47', pattern: 'hardwood', roughness: 0.8 },
   { id: 'bamboo', name: 'Bamboo', color: '#e6d3a7', pattern: 'bamboo', roughness: 0.7 },

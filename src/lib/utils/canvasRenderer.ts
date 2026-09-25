@@ -15,6 +15,7 @@ import { formatLength, formatArea } from '$lib/stores/settings';
 import { getCatalogItem, getFurnitureSize } from '$lib/utils/furnitureCatalog';
 import { drawFurnitureIcon } from '$lib/utils/furnitureIcons';
 import { getRoomPolygon, roomCentroid, roomLabelPosition } from '$lib/utils/roomDetection';
+import { roomPlanHeight } from '$lib/utils/wallProfiles';
 import { getWallTextureCanvas, getFloorTextureCanvas } from '$lib/utils/textureGenerator';
 import { getEntourageDef } from '$lib/utils/entourageCatalog';
 import type { EntourageItem, CustomEntourageDef } from '$lib/models/types';
@@ -87,7 +88,20 @@ export function wallEdgeInsets(w: Wall, allWalls: Wall[]): { start: number; end:
       if (other.id === w.id) continue;
       const touchesStart = Math.abs(other.start.x - pt.x) < EP && Math.abs(other.start.y - pt.y) < EP;
       const touchesEnd = Math.abs(other.end.x - pt.x) < EP && Math.abs(other.end.y - pt.y) < EP;
-      if (!touchesStart && !touchesEnd) continue;
+      // A shared wall may remain one long segment. A partition ending on its
+      // interior is a T-junction and must also subtract that wall's half-width.
+      let touchesInterior = false;
+      if (!other.curvePoint) {
+        const dx = other.end.x - other.start.x, dy = other.end.y - other.start.y;
+        const lengthSquared = dx * dx + dy * dy;
+        if (lengthSquared > 0) {
+          const t = ((pt.x - other.start.x) * dx + (pt.y - other.start.y) * dy) / lengthSquared;
+          touchesInterior = t > 0 && t < 1 && Math.hypot(
+            pt.x - (other.start.x + t * dx), pt.y - (other.start.y + t * dy)
+          ) < EP;
+        }
+      }
+      if (!touchesStart && !touchesEnd && !touchesInterior) continue;
       // Collinear continuations don't narrow the span — only crossing walls do
       const odx = other.end.x - other.start.x, ody = other.end.y - other.start.y;
       const ol = Math.hypot(odx, ody) || 1;
@@ -1530,7 +1544,9 @@ export function drawRooms(
         const dimFontSize = Math.max(9, 10 * zoom);
         ctx.fillStyle = '#b0b8c4'; ctx.font = `${dimFontSize}px sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(`${formatLength(roomW * 100, dimSettings.units)} × ${formatLength(roomD * 100, dimSettings.units)}`, sc.x, sc.y + fontSize + 2);
+        const roomHeight = roomPlanHeight(room, floor.walls);
+        const dimensions = `${formatLength(roomW * 100, dimSettings.units)} × ${formatLength(roomD * 100, dimSettings.units)}`;
+        ctx.fillText(roomHeight === undefined ? dimensions : `${dimensions} × ${formatLength(roomHeight, dimSettings.units)}`, sc.x, sc.y + fontSize + 2);
       }
     }
   }

@@ -37,5 +37,5 @@ it('retains saved metadata when a duplicate or partial-overlap boundary is added
  }
  const source = [...boundary, wall('copy', 600, 0, 0, 0)];
  const ambiguous = resolveRooms({ walls: source, rooms: [saved, { ...saved, id: 'other', name: 'Other' }] });
- expect(ambiguous[0].name).toBe('Room 1');
+ expect(ambiguous[0].name).toBe('Kamer 1');
 });

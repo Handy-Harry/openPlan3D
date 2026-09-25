@@ -1,6 +1,34 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
+test('room presets use Dutch names, including WC, Inkom and Berging', async ({ page }) => {
+  const plan = JSON.parse(await readFile('tests/fixtures/connected-dimensions.openplan.json', 'utf8'));
+  plan.floors[0].rooms[0].name = 'Original room';
+  await page.addInitScript(() => localStorage.setItem('o3d_locale', 'en'));
+  await page.goto('/editor');
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await (await chooser).setFiles({ name: 'room.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(plan)) });
+  await page.getByRole('button', { name: 'Toggle Layers Panel', exact: true }).click();
+  await page.getByRole('button', { name: /Original room/ }).click();
+
+  const panel = page.locator('[data-plan-properties]');
+  const name = panel.getByRole('textbox', { name: 'Kamernaam', exact: true });
+  const type = panel.getByRole('combobox', { name: 'Room Type', exact: true });
+  const names = [
+    ['living', 'Woonkamer'], ['bedroom', 'Slaapkamer'], ['kitchen', 'Keuken'],
+    ['bathroom', 'Badkamer'], ['dining', 'Eetkamer'], ['office', 'Kantoor'],
+    ['hallway', 'Gang'], ['closet', 'Kast'], ['laundry', 'Wasruimte'],
+    ['garage', 'Garage'], ['wc', 'WC'], ['inkom', 'Inkom'], ['berging', 'Berging'],
+  ] as const;
+  for (const [value, label] of names) {
+    await type.selectOption(value);
+    await expect(name).toHaveValue(label);
+    await expect(type).toHaveValue(value);
+  }
+});
+
 test('Portuguese room properties retain names, geometry and material IDs', async ({ page }) => {
   const plan = JSON.parse(await readFile('tests/fixtures/connected-dimensions.openplan.json', 'utf8'));
   plan.floors[0].rooms[0].name = 'Original {name}';
