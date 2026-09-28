@@ -25,14 +25,14 @@
   import ContextMenu from './ContextMenu.svelte';
   import { roomPresets, placePreset } from '$lib/utils/roomPresets';
   import { parseRoomDimension, roomDrawingEnd, snapRoomCorner, roomInteriorCorner, oppositeRoomCorner, alignedRoomCorner, roomBoundary, missingRoomWalls } from '$lib/utils/roomDrawing';
-  import { dimensionOffsetAt } from '$lib/utils/dimensionPlanGeometry';
+  import { dimensionOffsetAt, wallFaceDimensionSpan } from '$lib/utils/dimensionPlanGeometry';
   import { roomTemplates, placeRoomTemplate } from '$lib/utils/roomTemplates';
   import { openingDropTarget } from '$lib/utils/openingDrop';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
   import { projectSettings, formatLength, formatArea } from '$lib/stores/settings';
   import type { ProjectSettings } from '$lib/stores/settings';
   import { resizeFurnitureFromHandle, type CanvasState } from '$lib/utils/canvasInteraction';
-  import { drawWall as _drawWall, drawDoorOnWall as _drawDoorOnWall, drawWindowOnWall as _drawWindowOnWall, drawDoorDistanceDimensions as _drawDoorDistanceDimensions, drawWindowDistanceDimensions as _drawWindowDistanceDimensions, drawFurnitureItem, drawStair as _drawStair, drawColumn as _drawColumn, drawGuides as _drawGuides, drawPersistedMeasurements as _drawPersistedMeasurements, drawTextAnnotations as _drawTextAnnotations, drawAnnotation as _drawAnnotation, drawAnnotations as _drawAnnotations, drawRooms as _drawRooms, drawWallJoints as _drawWallJoints, drawSnapPoints as _drawSnapPoints, drawMinimap as _drawMinimap, drawEntourageItems as _drawEntourageItems, drawEntourageGhost as _drawEntourageGhost, drawFloorBelowGhost as _drawFloorBelowGhost, entourageAspect } from '$lib/utils/canvasRenderer';
+  import { drawWall as _drawWall, drawDoorOnWall as _drawDoorOnWall, drawWindowOnWall as _drawWindowOnWall, drawDoorDistanceDimensions as _drawDoorDistanceDimensions, drawWindowDistanceDimensions as _drawWindowDistanceDimensions, drawFurnitureItem, drawStair as _drawStair, drawColumn as _drawColumn, drawGuides as _drawGuides, drawPersistedMeasurements as _drawPersistedMeasurements, drawTextAnnotations as _drawTextAnnotations, drawAnnotation as _drawAnnotation, drawAnnotations as _drawAnnotations, drawRooms as _drawRooms, drawWallJoints as _drawWallJoints, drawSnapPoints as _drawSnapPoints, drawMinimap as _drawMinimap, drawEntourageItems as _drawEntourageItems, drawEntourageGhost as _drawEntourageGhost, drawFloorBelowGhost as _drawFloorBelowGhost, entourageAspect, wallEdgeInsets } from '$lib/utils/canvasRenderer';
   import { getEntourageDef } from '$lib/utils/entourageCatalog';
   import { translatedOpeningPosition } from '$lib/utils/openingTranslation';
   import { findRoomLabelAt as _findRoomLabelAt, positionOnWall, findWallAt as _findWallAt, findHandleAt as _findHandleAt, findFurnitureAt as _findFurnitureAt, findColumnAt as _findColumnAt, findStairAt as _findStairAt, findDoorAt as _findDoorAt, findWindowAt as _findWindowAt, findRoomAt as _findRoomAt, hitTestMeasurement as _hitTestMeasurement, hitTestAnnotation as _hitTestAnnotation, hitTestTextAnnotation as _hitTestTextAnnotation, findEntourageAt } from '$lib/utils/hitTesting';
@@ -182,7 +182,7 @@
   // Annotation tool (dimension annotations)
   let annotating = $derived(currentTool === 'annotate');
   let annotationStart: Point | null = $state(null);
-  let annotationWall: { start: Point; end: Point } | null = $state(null);
+  let annotationWall: Wall | null = $state(null);
   let selectedAnnotationId: string | null = $state(null);
   let draggingAnnotation: { id: string; start: Point; end: Point; offset: number; pointerOffset: number } | null = null;
   let editingDimensionId: string | null = $state(null);
@@ -846,8 +846,10 @@
   }
 
   function drawAnnotationPreview() {
-    if (annotationWall) {
-      const { start, end } = annotationWall;
+    if (annotationWall && currentFloor) {
+      const span = wallFaceDimensionSpan(annotationWall, wallEdgeInsets(annotationWall, currentFloor.walls), mousePos);
+      if (!span) return;
+      const { start, end } = span;
       _drawAnnotation(getCS(), {
         id: 'dimension-preview', x1: start.x, y1: start.y,
         x2: end.x, y2: end.y, offset: dimensionOffsetAt(start, end, mousePos)
@@ -2431,16 +2433,17 @@
     // Dimension tool: click a straight wall, position its dimension, then click again.
     // Empty-space clicks retain the existing two-point annotation workflow.
     if (annotating) {
-      if (annotationWall) {
-        const { start, end } = annotationWall;
-        addAnnotation(start.x, start.y, end.x, end.y, dimensionOffsetAt(start, end, wp));
+      if (annotationWall && currentFloor) {
+        const span = wallFaceDimensionSpan(annotationWall, wallEdgeInsets(annotationWall, currentFloor.walls), wp);
+        if (span) addAnnotation(span.start.x, span.start.y, span.end.x, span.end.y, dimensionOffsetAt(span.start, span.end, wp));
         annotationWall = null;
         return;
       }
       if (!annotationStart) {
         const wall = layerVis.walls ? findWallAt(wp) : null;
-        if (wall && !wall.curvePoint && Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y) >= 1) {
-          annotationWall = { start: { ...wall.start }, end: { ...wall.end } };
+        if (wall && !wall.curvePoint && currentFloor
+          && wallFaceDimensionSpan(wall, wallEdgeInsets(wall, currentFloor.walls), wp)) {
+          annotationWall = wall;
           mousePos = { ...wp };
           return;
         }

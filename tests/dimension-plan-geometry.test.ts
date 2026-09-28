@@ -1,10 +1,22 @@
 import { expect, it } from 'vitest';
-import { dimensionOffsetAt, dimensionPlanGeometry } from '$lib/utils/dimensionPlanGeometry';
+import { dimensionOffsetAt, dimensionPlanGeometry, wallFaceDimensionSpan } from '$lib/utils/dimensionPlanGeometry';
+import { wallEdgeInsets } from '$lib/utils/canvasRenderer';
 it('projects a pointer onto either side of a horizontal or vertical dimension', () => {
  expect(dimensionOffsetAt({x:0,y:0},{x:200,y:0},{x:80,y:55})).toBe(55);
  expect(dimensionOffsetAt({x:0,y:0},{x:200,y:0},{x:80,y:-25})).toBe(-25);
  expect(dimensionOffsetAt({x:0,y:0},{x:0,y:200},{x:-40,y:80})).toBe(40);
  expect(dimensionOffsetAt({x:0,y:0},{x:0,y:0},{x:10,y:10})).toBe(0);
+});
+it('measures the free inside span of a wall, anchored to its selected face', () => {
+ const top = {id:'top',start:{x:0,y:0},end:{x:200,y:0},thickness:20,height:250,color:'#444'};
+ const left = {...top,id:'left',start:{x:0,y:0},end:{x:0,y:150}};
+ const right = {...top,id:'right',start:{x:200,y:0},end:{x:200,y:150}};
+ const insets = wallEdgeInsets(top,[top,left,right]);
+ expect(insets).toEqual({start:10,end:10});
+ const inside = wallFaceDimensionSpan(top,insets,{x:100,y:40});
+ expect(inside).toEqual({start:{x:10,y:10},end:{x:190,y:10}});
+ expect(Math.hypot(inside!.end.x-inside!.start.x,inside!.end.y-inside!.start.y)).toBe(180);
+ expect(wallFaceDimensionSpan(top,insets,{x:100,y:-40})).toEqual({start:{x:10,y:-10},end:{x:190,y:-10}});
 });
 it('preserves zero and signed offsets without changing the annotation',()=>{
  const note={id:'a',x1:-300,y1:-200,x2:100,y2:-200,offset:0},before=JSON.stringify(note);

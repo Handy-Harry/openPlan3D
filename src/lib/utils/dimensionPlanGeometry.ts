@@ -1,5 +1,20 @@
-import type { Annotation } from '$lib/models/types';
-import type { Point } from '$lib/models/types';
+import type { Annotation, Point, Wall } from '$lib/models/types';
+
+/** Anchor a selected wall's dimension on the chosen face, between adjoining inner faces. */
+export function wallFaceDimensionSpan(
+  wall: Wall, insets: { start: number; end: number }, pointer: Point
+): { start: Point; end: Point } | null {
+  const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1 || insets.start + insets.end >= length) return null;
+  const ux = dx / length, uy = dy / length;
+  const side = dimensionOffsetAt(wall.start, wall.end, pointer) < 0 ? -1 : 1;
+  const nx = -uy * wall.thickness / 2 * side, ny = ux * wall.thickness / 2 * side;
+  return {
+    start: { x: wall.start.x + ux * insets.start + nx, y: wall.start.y + uy * insets.start + ny },
+    end: { x: wall.end.x - ux * insets.end + nx, y: wall.end.y - uy * insets.end + ny }
+  };
+}
 
 /** Signed perpendicular distance from a measured segment to the pointer. */
 export function dimensionOffsetAt(start: Point, end: Point, pointer: Point): number {
