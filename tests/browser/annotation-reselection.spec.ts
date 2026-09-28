@@ -7,8 +7,8 @@ for(const width of [1440,390]) {
       localStorage.setItem('o3d_tips_seen',JSON.stringify(['first-wall','first-furniture','first-3d','first-export','first-door']));
       const fill=CanvasRenderingContext2D.prototype.fillText,stroke=CanvasRenderingContext2D.prototype.strokeRect;
       CanvasRenderingContext2D.prototype.fillText=function(text,x,y,maxWidth){
-        if(this.canvas.getAttribute('aria-label')==='Floor plan editor canvas' && ['Group note','2 m','Dimension'].includes(text)) {
-          const b=this.canvas.getBoundingClientRect(),p=new DOMPoint(x,y+(text==='2 m'?6:0)).matrixTransform(this.getTransform());
+        if(this.canvas.getAttribute('aria-label')==='Floor plan editor canvas' && ['Group note','2.00 m','Dimension'].includes(text)) {
+          const b=this.canvas.getBoundingClientRect(),p=new DOMPoint(x,y+(text==='2.00 m'?6:0)).matrixTransform(this.getTransform());
           ((window as any).__targets??={})[text]={x:b.x+p.x*b.width/this.canvas.width,y:b.y+p.y*b.height/this.canvas.height};
         }
         return maxWidth===undefined?fill.call(this,text,x,y):fill.call(this,text,x,y,maxWidth);
@@ -42,7 +42,7 @@ for(const width of [1440,390]) {
       await page.mouse.click(target.x,target.y);
       if(modifier)await page.keyboard.up(modifier);
     }
-    for(const name of ['Group note','2 m','Dimension']) {
+    for(const name of ['Group note','2.00 m','Dimension']) {
       await save.press('Escape');await clickTarget(name);
       await expect(page.getByText('3 selected',{exact:true}).first()).toBeVisible();
       expect(await exported()).toEqual(before);
@@ -58,7 +58,7 @@ for(const width of [1440,390]) {
     await page.getByRole('button',{name:'Undo',exact:true}).click();expect(await exported()).toEqual(before);
     await clickTarget('Group note','ControlOrMeta');
     await expect(page.getByText('3 selected',{exact:true})).toHaveCount(0);
-    await clickTarget('2 m','Shift');
+    await clickTarget('2.00 m','Shift');
     await expect(page.getByText('2 selected',{exact:true}).first()).toBeVisible();
     await clickTarget('Dimension','Shift');
     await expect(page.getByText('3 selected',{exact:true}).first()).toBeVisible();
