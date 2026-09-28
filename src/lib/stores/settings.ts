@@ -11,7 +11,7 @@ export interface ProjectSettings {
   wallMeasureMode: 'centerline' | 'edge'; // measure walls center-to-center or edge-to-edge (clear span)
   snapToGrid: boolean;                   // snap elements to grid when dragging
   snapToWalls: boolean;                  // snap furniture to nearby walls when dragging
-  gridSize: number;                      // grid snap size in cm (default 25)
+  gridSize: number;                      // grid snap size in cm (default 10)
 }
 
 const defaultSettings: ProjectSettings = {
@@ -25,15 +25,26 @@ const defaultSettings: ProjectSettings = {
   wallMeasureMode: 'centerline',
   snapToGrid: true,
   snapToWalls: true,
-  gridSize: 25,
+  gridSize: 10,
 };
+
+const gridSizeMigrationKey = 'o3d_grid_size_default_10_v1';
 
 // Load from localStorage if available
 function loadSettings(): ProjectSettings {
   if (typeof window === 'undefined') return { ...defaultSettings };
   try {
     const saved = localStorage.getItem('o3d_settings');
-    if (saved) return { ...defaultSettings, ...JSON.parse(saved) };
+    const parsed = saved ? JSON.parse(saved) : null;
+    const settings: Partial<ProjectSettings> = parsed && typeof parsed === 'object' ? parsed : {};
+    if (localStorage.getItem(gridSizeMigrationKey) !== '1') {
+      if (settings.gridSize === 25) {
+        settings.gridSize = 10;
+        localStorage.setItem('o3d_settings', JSON.stringify(settings));
+      }
+      localStorage.setItem(gridSizeMigrationKey, '1');
+    }
+    return { ...defaultSettings, ...settings };
   } catch {}
   return { ...defaultSettings };
 }
