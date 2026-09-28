@@ -139,6 +139,35 @@ function extendBoundsForText(floor: Floor, bounds: { minX: number; minY: number;
   }
 }
 
+/** Ignore empty export bounds while retaining the plan's intended padding. */
+function trimPdfCanvas(canvas: HTMLCanvasElement, padding: number): HTMLCanvasElement {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+  const { width, height } = canvas;
+  let pixels: Uint8ClampedArray;
+  try { pixels = ctx.getImageData(0, 0, width, height).data; }
+  catch { return canvas; }
+  if (pixels.length !== width * height * 4) return canvas;
+  let left = width, top = height, right = -1, bottom = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      if (pixels[i] >= 250 && pixels[i + 1] >= 250 && pixels[i + 2] >= 250) continue;
+      left = Math.min(left, x); top = Math.min(top, y);
+      right = Math.max(right, x); bottom = Math.max(bottom, y);
+    }
+  }
+  if (right < left) return canvas;
+  const x = Math.max(0, left - padding), y = Math.max(0, top - padding);
+  const endX = Math.min(width, right + padding + 1), endY = Math.min(height, bottom + padding + 1);
+  if (x === 0 && y === 0 && endX === width && endY === height) return canvas;
+  const trimmed = document.createElement('canvas');
+  trimmed.width = endX - x;
+  trimmed.height = endY - y;
+  trimmed.getContext('2d')!.drawImage(canvas, x, y, trimmed.width, trimmed.height, 0, 0, trimmed.width, trimmed.height);
+  return trimmed;
+}
+
 /**
  * Draw all doors and windows onto an export canvas using the shared
  * full-fidelity renderer. The CanvasState below maps world→canvas as
@@ -918,10 +947,11 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
   drawTextAnnotations({ ctx, width: pad * 2, height: pad * 2, zoom: 1, camX: minX, camY: minY }, floor, null, null);
 
   // Embed rendered plan into PDF
-  const imgData = offscreen.toDataURL('image/png');
+  const visiblePlan = trimPdfCanvas(offscreen, Math.round(pad * scale));
+  const imgData = visiblePlan.toDataURL('image/png');
   const drawAreaW = pw - margin * 2 - 4;
   const drawAreaH = ph - margin * 2 - titleBlockH - 6;
-  const aspect = planW / planH;
+  const aspect = visiblePlan.width / visiblePlan.height;
   let imgW = drawAreaW;
   let imgH = drawAreaW / aspect;
   if (imgH > drawAreaH) { imgH = drawAreaH; imgW = drawAreaH * aspect; }

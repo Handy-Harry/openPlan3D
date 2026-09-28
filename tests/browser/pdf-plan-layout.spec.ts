@@ -15,6 +15,8 @@ test('PDF fits tall plans on one page with room and window dimensions', async ({
   floor.walls.push(...tinyWalls);
   floor.rooms.push({ id: 'tiny-room', name: 'WC', walls: tinyWalls.map(wall => wall.id),
     area: 1.08, floorTexture: 'none', color: '#ddd8d0' });
+  floor.textAnnotations.push({ id: 'white-note', x: -200, y: -1000,
+    text: 'Invisible note', fontSize: 16, color: '#ffffff', rotation: 0 });
   project.name = 'Room dimension PDF sample';
 
   await page.goto('/editor');
@@ -25,8 +27,16 @@ test('PDF fits tall plans on one page with room and window dimensions', async ({
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   await page.evaluate(() => {
-    const trackedWindow = window as typeof window & { pdfTextBackgrounds?: string[] };
+    const trackedWindow = window as typeof window & {
+      pdfTextBackgrounds?: string[];
+      pdfImageSize?: { width: number; height: number };
+    };
     trackedWindow.pdfTextBackgrounds = [];
+    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL = function (...args) {
+      if (args[0] === 'image/png') trackedWindow.pdfImageSize = { width: this.width, height: this.height };
+      return originalToDataURL.apply(this, args);
+    };
     const originalFillRect = CanvasRenderingContext2D.prototype.fillRect;
     CanvasRenderingContext2D.prototype.fillRect = function (...args) {
       const fill = String(this.fillStyle);
@@ -42,6 +52,11 @@ test('PDF fits tall plans on one page with room and window dimensions', async ({
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export as PDF', exact: true }).click();
   expect(await page.evaluate(() => (window as typeof window & { pdfTextBackgrounds?: string[] }).pdfTextBackgrounds)).toEqual([]);
+  const imageSize = await page.evaluate(() => (window as typeof window & {
+    pdfImageSize?: { width: number; height: number };
+  }).pdfImageSize);
+  expect(imageSize).toBeDefined();
+  expect(imageSize!.height / imageSize!.width).toBeLessThan(1.7);
   const pdf = await readFile((await (await pending).path())!);
   expect(pdf.length).toBeGreaterThan(10_000);
   const content = pdf.toString('latin1');
