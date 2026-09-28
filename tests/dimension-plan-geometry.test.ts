@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { dimensionOffsetAt, dimensionPlanGeometry, wallFaceDimensionSpan } from '$lib/utils/dimensionPlanGeometry';
+import { dimensionOffsetAt, dimensionPlanGeometry, insetDimensionSpan, snappedWallEndpointSpan, wallFaceDimensionSpan } from '$lib/utils/dimensionPlanGeometry';
 import { wallEdgeInsets } from '$lib/utils/canvasRenderer';
 it('projects a pointer onto either side of a horizontal or vertical dimension', () => {
  expect(dimensionOffsetAt({x:0,y:0},{x:200,y:0},{x:80,y:55})).toBe(55);
@@ -17,6 +17,26 @@ it('measures the free inside span of a wall, anchored to its selected face', () 
  expect(inside).toEqual({start:{x:10,y:10},end:{x:190,y:10}});
  expect(Math.hypot(inside!.end.x-inside!.start.x,inside!.end.y-inside!.start.y)).toBe(180);
  expect(wallFaceDimensionSpan(top,insets,{x:100,y:-40})).toEqual({start:{x:10,y:-10},end:{x:190,y:-10}});
+});
+it('uses the inside span for two snapped endpoints of one wall, in either order', () => {
+ const top = {id:'top',start:{x:0,y:0},end:{x:200,y:0},thickness:20,height:250,color:'#444'};
+ const left = {...top,id:'left',start:{x:0,y:0},end:{x:0,y:150}};
+ const right = {...top,id:'right',start:{x:200,y:0},end:{x:200,y:150}};
+ const walls = [top,left,right], insets = (wall: typeof top) => wallEdgeInsets(wall,walls);
+ expect(snappedWallEndpointSpan(top.start,top.end,{x:100,y:40},walls,insets))
+   .toEqual({start:{x:10,y:10},end:{x:190,y:10}});
+ expect(snappedWallEndpointSpan(top.end,top.start,{x:100,y:-40},walls,insets))
+   .toEqual({start:{x:190,y:-10},end:{x:10,y:-10}});
+ expect(snappedWallEndpointSpan({x:50,y:30},{x:150,y:30},{x:100,y:60},walls,insets)).toBeNull();
+});
+it('shortens a dimension between separate wall points but preserves free points', () => {
+ const line = {id:'measure',start:{x:0,y:0},end:{x:200,y:0},thickness:0,height:0,color:''};
+ const left = {...line,id:'left',start:{x:0,y:-80},end:{x:0,y:80},thickness:20};
+ const right = {...line,id:'right',start:{x:200,y:-80},end:{x:200,y:80},thickness:30};
+ expect(insetDimensionSpan(line.start,line.end,wallEdgeInsets(line,[left,right])))
+   .toEqual({start:{x:10,y:0},end:{x:185,y:0}});
+ expect(insetDimensionSpan({x:30,y:40},{x:170,y:40},{start:0,end:0}))
+   .toEqual({start:{x:30,y:40},end:{x:170,y:40}});
 });
 it('preserves zero and signed offsets without changing the annotation',()=>{
  const note={id:'a',x1:-300,y1:-200,x2:100,y2:-200,offset:0},before=JSON.stringify(note);

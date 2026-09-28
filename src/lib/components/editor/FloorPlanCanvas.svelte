@@ -25,7 +25,7 @@
   import ContextMenu from './ContextMenu.svelte';
   import { roomPresets, placePreset } from '$lib/utils/roomPresets';
   import { parseRoomDimension, roomDrawingEnd, snapRoomCorner, roomInteriorCorner, oppositeRoomCorner, alignedRoomCorner, roomBoundary, missingRoomWalls } from '$lib/utils/roomDrawing';
-  import { dimensionOffsetAt, wallFaceDimensionSpan } from '$lib/utils/dimensionPlanGeometry';
+  import { dimensionOffsetAt, insetDimensionSpan, snappedWallEndpointSpan, wallFaceDimensionSpan } from '$lib/utils/dimensionPlanGeometry';
   import { roomTemplates, placeRoomTemplate } from '$lib/utils/roomTemplates';
   import { openingDropTarget } from '$lib/utils/openingDrop';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
@@ -846,6 +846,23 @@
     _drawAnnotations(getCS(), floor, selectedAnnotationId, dimSettings);
   }
 
+  function pointDimensionSpan(pointer: Point) {
+    if (!annotationStart || !annotationEnd) return null;
+    if (currentFloor) {
+      const alongWall = snappedWallEndpointSpan(annotationStart, annotationEnd, pointer,
+        currentFloor.walls, wall => wallEdgeInsets(wall, currentFloor!.walls));
+      if (alongWall) return alongWall;
+      const measuredSegment: Wall = {
+        id: '__point_dimension__', start: annotationStart, end: annotationEnd,
+        thickness: 0, height: 0, color: ''
+      };
+      const betweenFaces = insetDimensionSpan(annotationStart, annotationEnd,
+        wallEdgeInsets(measuredSegment, currentFloor.walls));
+      if (betweenFaces) return betweenFaces;
+    }
+    return { start: annotationStart, end: annotationEnd };
+  }
+
   function drawAnnotationPreview() {
     if (annotationWall && currentFloor) {
       const span = wallFaceDimensionSpan(annotationWall, wallEdgeInsets(annotationWall, currentFloor.walls), mousePos);
@@ -859,10 +876,11 @@
     }
     if (!annotationStart) return;
     if (annotationEnd) {
+      const span = pointDimensionSpan(mousePos)!;
       _drawAnnotation(getCS(), {
-        id: 'dimension-preview', x1: annotationStart.x, y1: annotationStart.y,
-        x2: annotationEnd.x, y2: annotationEnd.y,
-        offset: dimensionOffsetAt(annotationStart, annotationEnd, mousePos)
+        id: 'dimension-preview', x1: span.start.x, y1: span.start.y,
+        x2: span.end.x, y2: span.end.y,
+        offset: dimensionOffsetAt(span.start, span.end, mousePos)
       }, true, dimSettings);
       return;
     }
@@ -2451,9 +2469,10 @@
       }
       if (annotationStart && annotationEnd) {
         e.preventDefault();
-        const id = addAnnotation(annotationStart.x, annotationStart.y,
-          annotationEnd.x, annotationEnd.y,
-          dimensionOffsetAt(annotationStart, annotationEnd, wp));
+        const span = pointDimensionSpan(wp)!;
+        const id = addAnnotation(span.start.x, span.start.y,
+          span.end.x, span.end.y,
+          dimensionOffsetAt(span.start, span.end, wp));
         annotationStart = null;
         annotationEnd = null;
         dimensionLabel = '';

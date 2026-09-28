@@ -75,5 +75,18 @@ test('a wall dimension can be placed and moved perpendicular to the wall', async
   const snappedDimensions = await annotations();
   expect(snappedDimensions).toHaveLength(3);
   expect([snappedDimensions[2].x1, snappedDimensions[2].y1, snappedDimensions[2].x2, snappedDimensions[2].y2])
-    .toEqual([-100, 0, 100, 0]);
+    .toEqual([-90, -10, 90, -10]);
+  expect(Math.hypot(snappedDimensions[2].x2 - snappedDimensions[2].x1,
+    snappedDimensions[2].y2 - snappedDimensions[2].y1)).toBe(180);
+
+  // Points on separate walls still measure between their inner faces.
+  await page.mouse.click(x - 100 * zoom + 4, y + 100 * zoom - 3);
+  await expect(page.getByText('Click the second point')).toBeVisible();
+  await page.mouse.click(x + 100 * zoom - 4, y + 100 * zoom - 3);
+  await expect(page.getByText('Move the dimension and click to place it')).toBeVisible();
+  await page.mouse.click(x, y + 100 * zoom - 60);
+  const betweenWalls = await annotations();
+  expect(betweenWalls).toHaveLength(4);
+  expect([betweenWalls[3].x1, betweenWalls[3].y1, betweenWalls[3].x2, betweenWalls[3].y2])
+    .toEqual([-90, 100, 90, 100]);
 });
