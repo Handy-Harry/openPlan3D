@@ -210,9 +210,6 @@ function drawPdfRoomAnnotation(ctx: CanvasRenderingContext2D, room: Room, polygo
   if (polygon.length < 3) return;
   const annotation = roomLabelBox(ctx, room, polygon, holes, floor, units, minX, minY, pad);
   ctx.save();
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(annotation.box.left, annotation.box.top,
-    annotation.box.right - annotation.box.left, annotation.box.bottom - annotation.box.top);
   ctx.fillStyle = '#1e293b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   let y = annotation.y - (annotation.lines.length - 1) * annotation.lineStep / 2;
   for (const line of annotation.lines) {
@@ -258,8 +255,6 @@ function drawPdfWindowDimensions(
   }
   if (!chosen) { ctx.restore(); return; }
   occupied.push(chosen.box);
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  ctx.fillRect(chosen.box.left, chosen.box.top, labelWidth + 12, 44);
   ctx.fillStyle = '#0f4c5c';
   ctx.fillText(lines[0], chosen.x, chosen.y - 10);
   ctx.fillText(lines[1], chosen.x, chosen.y + 10);

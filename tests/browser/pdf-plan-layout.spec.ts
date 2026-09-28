@@ -24,8 +24,24 @@ test('PDF fits tall plans on one page with room and window dimensions', async ({
   await (await chooser).setFiles({ name: 'rooms.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(project)) });
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.evaluate(() => {
+    const trackedWindow = window as typeof window & { pdfTextBackgrounds?: string[] };
+    trackedWindow.pdfTextBackgrounds = [];
+    const originalFillRect = CanvasRenderingContext2D.prototype.fillRect;
+    CanvasRenderingContext2D.prototype.fillRect = function (...args) {
+      const fill = String(this.fillStyle);
+      const fullPageBackground = args[0] === 0 && args[1] === 0
+        && args[2] > 500 && args[3] > 500;
+      if (!fullPageBackground && (fill === '#fff' || fill === '#ffffff'
+        || /^rgba\(255,\s*255,\s*255,\s*0\.92\)$/.test(fill))) {
+        trackedWindow.pdfTextBackgrounds?.push(fill);
+      }
+      return originalFillRect.apply(this, args);
+    };
+  });
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export as PDF', exact: true }).click();
+  expect(await page.evaluate(() => (window as typeof window & { pdfTextBackgrounds?: string[] }).pdfTextBackgrounds)).toEqual([]);
   const pdf = await readFile((await (await pending).path())!);
   expect(pdf.length).toBeGreaterThan(10_000);
   const content = pdf.toString('latin1');
