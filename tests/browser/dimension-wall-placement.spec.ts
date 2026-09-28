@@ -49,4 +49,31 @@ test('a wall dimension can be placed and moved perpendicular to the wall', async
   expect(moved[0].offset).toBeGreaterThan(placed[0].offset);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   expect((await annotations())[0].offset).toBeCloseTo(placed[0].offset);
+
+  await page.getByRole('button', { name: /^Dimension Add dimension annotations/ }).click();
+  await page.mouse.click(x - 40, y + 130);
+  await expect(page.getByText('Click the second point')).toBeVisible();
+  await page.mouse.click(x + 40, y + 130);
+  await expect(page.getByText('Move the dimension and click to place it')).toBeVisible();
+  expect(await annotations()).toHaveLength(1);
+  await page.mouse.move(x + 40, y + 180);
+  await page.mouse.click(x + 40, y + 180);
+  const freeDimensions = await annotations();
+  expect(freeDimensions).toHaveLength(2);
+  expect(freeDimensions[1].x2).toBeGreaterThan(freeDimensions[1].x1);
+  expect(freeDimensions[1].offset).toBeGreaterThan(0);
+
+  // Near a wall endpoint, the first click chooses that point rather than the whole wall.
+  const zoomText = await page.locator('body').innerText();
+  const zoom = Number(zoomText.match(/Zoom:\s*(\d+)%/)?.[1]) / 100;
+  expect(zoom).toBeGreaterThan(0);
+  await page.mouse.click(x - 100 * zoom + 4, y + 3);
+  await expect(page.getByText('Click the second point')).toBeVisible();
+  await page.mouse.click(x + 100 * zoom - 4, y + 3);
+  await expect(page.getByText('Move the dimension and click to place it')).toBeVisible();
+  await page.mouse.click(x, y - 60);
+  const snappedDimensions = await annotations();
+  expect(snappedDimensions).toHaveLength(3);
+  expect([snappedDimensions[2].x1, snappedDimensions[2].y1, snappedDimensions[2].x2, snappedDimensions[2].y2])
+    .toEqual([-100, 0, 100, 0]);
 });

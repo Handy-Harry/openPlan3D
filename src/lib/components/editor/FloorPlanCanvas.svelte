@@ -182,6 +182,7 @@
   // Annotation tool (dimension annotations)
   let annotating = $derived(currentTool === 'annotate');
   let annotationStart: Point | null = $state(null);
+  let annotationEnd: Point | null = $state(null);
   let annotationWall: Wall | null = $state(null);
   let selectedAnnotationId: string | null = $state(null);
   let draggingAnnotation: { id: string; start: Point; end: Point; offset: number; pointerOffset: number } | null = null;
@@ -857,7 +858,15 @@
       return;
     }
     if (!annotationStart) return;
-    const end = mousePos;
+    if (annotationEnd) {
+      _drawAnnotation(getCS(), {
+        id: 'dimension-preview', x1: annotationStart.x, y1: annotationStart.y,
+        x2: annotationEnd.x, y2: annotationEnd.y,
+        offset: dimensionOffsetAt(annotationStart, annotationEnd, mousePos)
+      }, true, dimSettings);
+      return;
+    }
+    const end = magneticSnap(mousePos);
     const offset = 40;
     const dx = end.x - annotationStart.x, dy = end.y - annotationStart.y;
     const len = Math.hypot(dx, dy);
@@ -1918,6 +1927,7 @@
         measureStart = null;
         measureEnd = null;
         annotationStart = null;
+        annotationEnd = null;
         annotationWall = null;
         editingDimensionId = null;
         wallStart = null;
@@ -1950,6 +1960,7 @@
         measureStart = null;
         measureEnd = null;
         annotationStart = null;
+        annotationEnd = null;
         annotationWall = null;
         editingDimensionId = null;
         wallStart = null;
@@ -2430,8 +2441,7 @@
       return;
     }
 
-    // Dimension tool: click a straight wall, position its dimension, then click again.
-    // Empty-space clicks retain the existing two-point annotation workflow.
+    // Dimension tool: select a wall, or choose two snapped points, then place the line.
     if (annotating) {
       if (annotationWall && currentFloor) {
         const span = wallFaceDimensionSpan(annotationWall, wallEdgeInsets(annotationWall, currentFloor.walls), wp);
@@ -2439,8 +2449,20 @@
         annotationWall = null;
         return;
       }
+      if (annotationStart && annotationEnd) {
+        e.preventDefault();
+        const id = addAnnotation(annotationStart.x, annotationStart.y,
+          annotationEnd.x, annotationEnd.y,
+          dimensionOffsetAt(annotationStart, annotationEnd, wp));
+        annotationStart = null;
+        annotationEnd = null;
+        dimensionLabel = '';
+        editingDimensionId = id;
+        return;
+      }
+      const snapped = magneticSnap(wp);
       if (!annotationStart) {
-        const wall = layerVis.walls ? findWallAt(wp) : null;
+        const wall = layerVis.walls && !snapped.snappedToEndpoint ? findWallAt(wp) : null;
         if (wall && !wall.curvePoint && currentFloor
           && wallFaceDimensionSpan(wall, wallEdgeInsets(wall, currentFloor.walls), wp)) {
           annotationWall = wall;
@@ -2448,17 +2470,10 @@
           return;
         }
       }
-      const snapped = magneticSnap(wp);
       if (!annotationStart) {
         annotationStart = { x: snapped.x, y: snapped.y };
-      } else {
-        // Keep the canvas's default mousedown focus from immediately blurring
-        // the inline label field that is about to open.
-        e.preventDefault();
-        const id = addAnnotation(annotationStart.x, annotationStart.y, snapped.x, snapped.y, 40);
-        annotationStart = null;
-        dimensionLabel = '';
-        editingDimensionId = id;
+      } else if (Math.hypot(snapped.x - annotationStart.x, snapped.y - annotationStart.y) >= 1) {
+        annotationEnd = { x: snapped.x, y: snapped.y };
       }
       return;
     }
@@ -3646,6 +3661,7 @@
       measureStart = null;
       measureEnd = null;
       annotationStart = null;
+      annotationEnd = null;
       annotationWall = null;
       marqueeStart = null;
       marqueeEnd = null;
@@ -4485,7 +4501,7 @@
   {/if}
   {#if annotating}
     <div class="absolute top-2 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-3 py-1 rounded-full text-xs shadow">
-      {annotationWall ? 'Move the dimension and click to place it' : annotationStart ? 'Click second point to create annotation' : 'Click a wall, or click two points'} · N to exit · Esc to cancel
+      {annotationWall || annotationEnd ? 'Move the dimension and click to place it' : annotationStart ? 'Click the second point' : 'Click a wall, or click the first point'} · N to exit · Esc to cancel
     </div>
   {/if}
 
